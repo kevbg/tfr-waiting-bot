@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, ChannelType } = require("discord.js");
 const {
   joinVoiceChannel,
   createAudioPlayer,
@@ -9,13 +9,13 @@ const {
 const fs = require("fs");
 const path = require("path");
 
-// ====== CONFIG ======
+// ===== CONFIG =====
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID;
 const MUSIC_PATH = path.join(__dirname, "music.mp3");
 
-// ====== CLIENT ======
+// ===== CLIENT =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -23,69 +23,87 @@ const client = new Client({
   ],
 });
 
-// ====== READY ======
+// ===== READY =====
 client.once("ready", async () => {
-  console.log(`✅ Connecté en tant que ${client.user.tag}`);
+  console.log("🚀 BOT READY :", client.user.tag);
 
-  // 🔍 Vérification MP3
-  console.log("MP3 exists:", fs.existsSync(MUSIC_PATH));
+  // 🔍 Vérifs de base
+  console.log("GUILD_ID =", GUILD_ID);
+  console.log("VOICE_CHANNEL_ID =", VOICE_CHANNEL_ID);
+  console.log("MP3 exists =", fs.existsSync(MUSIC_PATH));
 
   if (!fs.existsSync(MUSIC_PATH)) {
-    console.error("❌ music.mp3 introuvable !");
+    console.error("❌ music.mp3 introuvable");
     return;
   }
 
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const channel = guild.channels.cache.get(VOICE_CHANNEL_ID);
+  try {
+    // 🔹 Fetch serveur
+    const guild = await client.guilds.fetch(GUILD_ID);
+    console.log("✅ Serveur trouvé :", guild.name);
 
-  if (!channel) {
-    console.error("❌ Salon vocal introuvable");
-    return;
-  }
+    // 🔹 Fetch salon vocal (PAS le cache)
+    const channel = await guild.channels.fetch(VOICE_CHANNEL_ID);
 
-  // 🔊 Connexion vocale
-  const connection = joinVoiceChannel({
-    channelId: channel.id,
-    guildId: guild.id,
-    adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: false,
-  });
+    if (!channel || channel.type !== ChannelType.GuildVoice) {
+      console.error("❌ Le salon n'est PAS un salon vocal");
+      return;
+    }
 
-  // 🎵 Player audio
-  const player = createAudioPlayer({
-    behaviors: {
-      noSubscriber: NoSubscriberBehavior.Play,
-    },
-  });
+    console.log("🔊 Salon vocal :", channel.name);
 
-  const playMusic = () => {
-    const resource = createAudioResource(MUSIC_PATH, {
-      inlineVolume: true,
+    // 🔹 Connexion vocale
+    const connection = joinVoiceChannel({
+      channelId: channel.id,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator,
+      selfDeaf: false,
     });
 
-    resource.volume.setVolume(0.5); // 🔊 volume (0.0 à 1.0)
+    connection.on("stateChange", (o, n) => {
+      console.log("VOICE STATE :", o.status, "→", n.status);
+    });
 
-    player.play(resource);
-    connection.subscribe(player);
-  };
+    // 🔹 Player audio
+    const player = createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+      },
+    });
 
-  // ▶️ Lancement
-  playMusic();
+    const playMusic = () => {
+      console.log("🎵 Lancement musique");
 
-  // 🔁 Boucle infinie
-  player.on(AudioPlayerStatus.Idle, () => {
-    console.log("🔁 Relance de la musique");
+      const resource = createAudioResource(MUSIC_PATH, {
+        inlineVolume: true,
+      });
+
+      resource.volume.setVolume(0.5); // volume 50 %
+      player.play(resource);
+      connection.subscribe(player);
+    };
+
+    // ▶️ Start
     playMusic();
-  });
 
-  player.on(AudioPlayerStatus.Playing, () => {
-    console.log("🎵 Musique en lecture");
-  });
+    // 🔁 Loop 24/7
+    player.on(AudioPlayerStatus.Idle, () => {
+      console.log("🔁 Musique terminée, relance");
+      playMusic();
+    });
 
-  player.on("error", (err) => {
-    console.error("❌ Erreur audio :", err);
-  });
+    player.on(AudioPlayerStatus.Playing, () => {
+      console.log("🎶 Musique en cours");
+    });
+
+    player.on("error", (err) => {
+      console.error("❌ Erreur audio :", err);
+    });
+
+  } catch (err) {
+    console.error("❌ Erreur générale :", err);
+  }
 });
 
-// ====== LOGIN ======
+// ===== LOGIN =====
 client.login(TOKEN);
