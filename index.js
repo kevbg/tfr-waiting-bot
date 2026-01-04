@@ -1,117 +1,91 @@
-// ===== OBLIGATOIRE POUR RAILWAY =====
-require('opusscript');
-
-const fs = require('fs');
-const path = require('path');
-
-const { Client, GatewayIntentBits } = require('discord.js');
+const fs = require("fs");
+const path = require("path");
+const { Client, GatewayIntentBits } = require("discord.js");
 const {
   joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
   NoSubscriberBehavior,
-  VoiceConnectionStatus,
-  entersState
-} = require('@discordjs/voice');
+} = require("@discordjs/voice");
 
-// ===== VARIABLES =====
+// ====== CONFIG ======
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const VOICE_CHANNEL_ID = process.env.VOICE_CHANNEL_ID;
+const MUSIC_PATH = path.join(__dirname, "music.mp3");
 
-const MP3_PATH = path.join(__dirname, 'attente.mp3');
+// ====== LOGS DE DEBUG ======
+console.log("GUILD_ID =", GUILD_ID);
+console.log("VOICE_CHANNEL_ID =", VOICE_CHANNEL_ID);
+console.log("MP3 exists =", fs.existsSync(MUSIC_PATH));
 
-// ===== CHECK =====
-console.log('GUILD_ID =', GUILD_ID);
-console.log('VOICE_CHANNEL_ID =', VOICE_CHANNEL_ID);
-console.log('MP3 exists =', fs.existsSync(MP3_PATH));
-
-if (!fs.existsSync(MP3_PATH)) {
-  console.error('❌ attente.mp3 introuvable !');
+if (!fs.existsSync(MUSIC_PATH)) {
+  console.error("❌ music.mp3 introuvable !");
   process.exit(1);
 }
 
-// ===== CLIENT =====
+// ====== CLIENT ======
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates
-  ]
+    GatewayIntentBits.GuildVoiceStates,
+  ],
 });
 
-// ===== AUDIO PLAYER =====
-const player = createAudioPlayer({
-  behaviors: {
-    noSubscriber: NoSubscriberBehavior.Play
-  }
-});
-
-// ===== READY =====
-client.once('ready', async () => {
+client.once("ready", async () => {
   console.log(`🚀 BOT READY : ${client.user.tag}`);
 
   const guild = await client.guilds.fetch(GUILD_ID);
-  if (!guild) return console.error('❌ Serveur introuvable');
-
-  const channel = guild.channels.cache.get(VOICE_CHANNEL_ID);
-  if (!channel || channel.type !== 2) {
-    return console.error('❌ Salon vocal invalide');
+  if (!guild) {
+    console.error("❌ Serveur introuvable");
+    return;
   }
 
-  console.log(`🔊 Salon vocal : ${channel.name}`);
+  const channel = await guild.channels.fetch(VOICE_CHANNEL_ID);
+  if (!channel || channel.type !== 2) {
+    console.error("❌ Salon vocal invalide");
+    return;
+  }
 
-  // ===== CONNEXION VOCALE (DAVE DÉSACTIVÉ) =====
+  console.log("🔊 Connexion au salon vocal :", channel.name);
+
   const connection = joinVoiceChannel({
     channelId: channel.id,
     guildId: guild.id,
     adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: false,
-    selfMute: false
+    selfDeaf: true,
   });
 
-  connection.on('stateChange', (oldState, newState) => {
-    console.log(`VOICE STATE : ${oldState.status} → ${newState.status}`);
+  const player = createAudioPlayer({
+    behaviors: {
+      noSubscriber: NoSubscriberBehavior.Play,
+    },
   });
 
-  try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-    console.log('✅ Connecté au vocal');
-  } catch (e) {
-    console.error('❌ Connexion vocale échouée', e);
-    return;
-  }
+  const playMusic = () => {
+    console.log("🎵 Lancement musique");
+
+    const resource = createAudioResource(MUSIC_PATH, {
+      inlineVolume: true,
+    });
+
+    resource.volume.setVolume(0.5); // volume 50%
+    player.play(resource);
+  };
+
+  player.on(AudioPlayerStatus.Idle, () => {
+    console.log("🔁 Replay musique");
+    playMusic();
+  });
+
+  player.on("error", (err) => {
+    console.error("❌ Erreur audio :", err);
+  });
 
   connection.subscribe(player);
-
-  // ===== LECTURE MUSIQUE =====
   playMusic();
 });
 
-// ===== FONCTION MUSIQUE (LOOP 24/7) =====
-function playMusic() {
-  console.log('🎵 Lancement musique');
-
-  const resource = createAudioResource(
-    fs.createReadStream(MP3_PATH),
-    {
-      inlineVolume: true
-    }
-  );
-
-  resource.volume.setVolume(0.4); // 🔊 Volume (0.1 à 1)
-
-  player.play(resource);
-}
-
-player.on(AudioPlayerStatus.Idle, () => {
-  console.log('🔁 Relance musique');
-  playMusic();
-});
-
-player.on('error', error => {
-  console.error('❌ Erreur audio :', error);
-});
-
-// ===== LOGIN =====
+// ====== LOGIN ======
 client.login(TOKEN);
